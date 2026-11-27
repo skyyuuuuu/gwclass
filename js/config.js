@@ -2,17 +2,17 @@
 
 // 1) Firebase 主控台 → 專案設定 → 一般 → 你的應用程式 → 「SDK 設定和配置」貼上這一段
 export const firebaseConfig = {
-  apiKey: "填入你的 apiKey",
-  authDomain: "填入你的專案.firebaseapp.com",
-  projectId: "填入你的專案 ID",
-  storageBucket: "填入你的專案.firebasestorage.app",
-  messagingSenderId: "填入",
-  appId: "填入"
+  apiKey: "AIzaSyDY6-tcxTuN2Qa9tD1aDe1BLo1UORzxcCU",
+  authDomain: "gwclass.firebaseapp.com",
+  projectId: "gwclass",
+  storageBucket: "gwclass.firebasestorage.app",
+  messagingSenderId: "1037793920070",
+  appId: "1:1037793920070:web:b75573f2145d2ca534f647"
 };
 
 // 2) Firebase 主控台 → Authentication → 使用者 → 你自己（老師）帳號的「使用者 UID」
 //    firestore.rules 裡也要填同一個 UID
-export const ADMIN_UID = "填入老師帳號的 UID";
+export const ADMIN_UID = "n9AzFb2aWVYZiK3OO78tHaVlzBy2";
 
 // ===== 以下通常不用改 =====
 export const SCHOOL_NAME = "光武國中";

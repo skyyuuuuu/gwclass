@@ -1,0 +1,102 @@
+/* 段考分析（班級總覽＋個人分析表）。全部限定在 .ana 底下，避免影響其他頁面 */
+.ana{--c1:#257de0;--c2:#f47230;--bad:#c62f30;--badbg:#fde8e8;--line:#e2e5e9;--soft:#f1f3f5;--muted:#5b6470;--ink:#101418;--slab:#ffd84a;color:var(--ink)}
+.ana h1{font-size:clamp(22px,3vw,32px);line-height:1.15;margin:6px 0 8px;text-wrap:balance;font-weight:900}
+.ana h2{font-size:18px;margin:0 0 4px;font-weight:800}
+.ana .sub{color:var(--muted);margin:0 0 14px;font-size:14px}
+.ana .acard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:clamp(14px,2vw,22px);margin-bottom:16px}
+.ana .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
+.ana .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.ana .kpi .l{font-size:13px;color:var(--muted)}.ana .kpi .v{font-size:clamp(24px,2.6vw,30px);font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums}
+.ana .kpi .n{font-size:12.5px;color:var(--muted)}
+.ana .kpi.hl .v{background:var(--slab);display:inline-block;padding:0 8px;border-radius:6px}
+.ana .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px}
+.ana .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:6px 0 12px}
+.ana .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.ana .hist{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;height:220px;align-items:end;border-bottom:1px solid var(--line);padding-top:12px}
+.ana .hcol{display:flex;gap:3px;align-items:end;height:100%;justify-content:center}
+.ana .hbar{width:min(26px,40%);border-radius:4px 4px 0 0;position:relative;min-height:1px}
+.ana .hbar span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:12px;padding-bottom:2px;font-variant-numeric:tabular-nums}
+.ana .hlab{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;font-size:12px;color:var(--muted);text-align:center;margin-top:6px}
+.ana .urow{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr);gap:4px 12px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.ana .urow:first-of-type{border-top:0}
+.ana .ulab{font-size:14px;font-weight:700;line-height:1.3}
+.ana .bars{display:grid;gap:4px}
+.ana .bar{display:flex;align-items:center;gap:8px;font-size:12.5px;font-variant-numeric:tabular-nums}
+.ana .track{flex:1;height:12px;background:var(--soft);border-radius:0 4px 4px 0;position:relative}
+.ana .fill{height:100%;border-radius:0 4px 4px 0}
+.ana .bar em{font-style:normal;width:3.2em;text-align:right;white-space:nowrap}
+.ana table{border-collapse:collapse;width:100%;font-size:13.5px}
+.ana th,.ana td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.ana th{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap}
+.ana td.num,.ana th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ana .scroll{overflow-x:auto}
+.ana .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.ana .p-hard{background:var(--badbg);color:var(--bad)}.ana .p-mid{background:#fff3cc;color:#7a5b00}.ana .p-easy{background:var(--soft);color:var(--muted)}
+.ana .dist{display:flex;height:10px;border-radius:3px;overflow:hidden;width:140px;gap:2px;background:#fff}
+.ana .dtxt{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
+.ana .dtxt b{color:var(--ink)}
+.ana .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.ana .abtn{font:inherit;font-size:14px;min-height:36px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:0 14px;cursor:pointer}
+.ana .abtn[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ana .namebtn{white-space:nowrap;border:0;background:none;padding:0;color:var(--c1);font-weight:700;font-size:14px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.ana .watch{margin:6px 0 0;padding-left:1.2em}.ana .watch li{margin:4px 0}
+.ana-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px}
+.ana-bar .inp{min-height:36px}
+.ana-list .item{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line)}
+.ana-list .item:last-child{border-bottom:0}
+.ana-list .item .t{font-weight:700}
+.ana-list .item .m{font-size:12px;color:var(--muted)}
+
+/* ---------- 個人分析表（永遠是白紙樣式） ---------- */
+.ana .sheet{background:#fff;color:#101418;width:min(100%,794px);margin:0 auto 24px;padding:32px 38px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.12),0 10px 30px rgba(0,0,0,.08)}
+.ana .sh-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:2px solid #101418;padding-bottom:10px}
+.ana .sh-head .t{font-size:20px;font-weight:900;line-height:1.25}.ana .sh-head .s{font-size:13px;color:var(--muted)}
+.ana .sh-head .who{text-align:right;font-size:15px}.ana .sh-head .who b{font-size:24px;display:block;line-height:1.2}
+.ana .sh-k{display:grid;grid-template-columns:1.3fr repeat(3,1fr);gap:10px;margin:16px 0 6px}
+.ana .sh-k>div{border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.ana .sh-k .l{font-size:12px;color:var(--muted)}.ana .sh-k .l small{font-size:11px}
+.ana .sh-k .v{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.2}
+.ana .sh-k .v small{font-size:13px;font-weight:500;color:var(--muted)}
+.ana .sh-k .main .v{font-size:30px}.ana .sh-k .main .v span{background:var(--slab);padding:0 6px;border-radius:5px}
+.ana .scale{position:relative;height:62px;margin:6px 6px 0}
+.ana .scale .ln{position:absolute;left:0;right:0;top:30px;height:6px;background:linear-gradient(90deg,#f6d3d3,#f1f3f5 45%,#d6e6f9);border-radius:3px}
+.ana .scale .tk{position:absolute;top:22px;transform:translateX(-50%);font-size:11px;color:var(--muted);text-align:center;white-space:nowrap}
+.ana .scale .tk::before{content:"";display:block;width:1px;height:22px;background:#9aa3ad;margin:0 auto 2px}
+.ana .scale .me{position:absolute;top:0;transform:translateX(-50%);font-size:12px;font-weight:800;color:var(--c1);white-space:nowrap;text-align:center}
+.ana .scale .me::after{content:"";display:block;width:14px;height:14px;border-radius:50%;background:var(--c1);border:3px solid #fff;box-shadow:0 0 0 1px var(--c1);margin:2px auto 0}
+.ana .sh h3{font-size:15px;font-weight:800;margin:14px 0 6px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.ana .sh h3 small{font-size:11.5px;font-weight:500;color:var(--muted)}
+.ana .su{display:grid;grid-template-columns:13em minmax(0,1fr) 7.5em;gap:10px;align-items:center;font-size:13px;padding:3px 0}
+.ana .su .track{height:14px}.ana .su .mk{position:absolute;top:-3px;width:2px;height:20px;background:#101418}
+.ana .su .r{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.ana .ag{display:grid;gap:3px}
+.ana .ag div{border-radius:4px;text-align:center;font-size:11px;line-height:1.15;padding:3px 0;background:var(--soft);color:var(--muted)}
+.ana .ag div b{display:block;font-size:13px;color:#101418}
+.ana .ag div.x{background:var(--badbg);color:var(--bad)}.ana .ag div.x b{color:var(--bad)}
+.ana .ag div.e{background:#fff;outline:1px dashed #c4cad1}
+.ana .sh table{font-size:12.5px}.ana .sh th,.ana .sh td{padding:4px 6px}.ana .sh th{font-size:11.5px}
+.ana .sh .wa{color:var(--bad);font-weight:800}
+.ana .advice{background:#f7f8fa;border-radius:10px;padding:10px 14px;margin-top:12px;font-size:13.5px}
+.ana .advice ul{margin:4px 0 0;padding-left:1.2em}.ana .advice li{margin:2px 0}
+.ana .sh-foot{font-size:11px;color:var(--muted);margin-top:10px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.ana .ncg{display:grid;gap:8px}.ana .ncg>div{border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+.ana .ncg .l{font-size:11.5px;color:var(--muted);line-height:1.3}.ana .ncg .v{font-size:20px;font-weight:800;line-height:1.2;font-variant-numeric:tabular-nums}.ana .ncg .v small{font-size:12px;font-weight:500;color:var(--muted)}.ana .ncg .v.lo{color:var(--bad)}
+.ana .wt2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.ana .allgood{font-size:13.5px;color:var(--muted);padding:6px 0}
+@media(max-width:600px){
+  .ana .sheet{padding:18px 14px}.ana .sh-k{grid-template-columns:1fr 1fr}.ana .su{grid-template-columns:7.5em minmax(0,1fr) 5.6em;font-size:12px}
+  .ana .ag{grid-template-columns:repeat(12,minmax(0,1fr)) !important}.ana .ncg{grid-template-columns:1fr !important}.ana .wt2{grid-template-columns:1fr}
+  .ana .urow{grid-template-columns:1fr}.ana .hist{gap:4px}.ana .hlab{gap:4px;font-size:11px}
+  .ana .scale{height:100px}.ana .scale .tk{font-size:10px}.ana .scale .tk.alt::before{height:48px}
+  .ana .sh td,.ana .sh th{white-space:nowrap}
+}
+/* 列印：只印個人分析表，一人一頁 A4 */
+@media print{
+  body.print-ana .top,body.print-ana .side,body.print-ana .mobile-cls,body.print-ana .noprint,body.print-ana .head,body.print-ana .tabs,body.print-ana .sp-head,body.print-ana .cards,body.print-ana .hint,body.print-ana .toast{display:none !important}
+  body.print-ana{background:#fff}
+  body.print-ana .main,body.print-ana .sp{padding:0;max-width:none}
+  body.print-ana .layout{display:block;min-height:0}
+  body.print-ana .ana .sheet{box-shadow:none;margin:0;padding:0;width:100%;border-radius:0;break-after:page;page-break-after:always;zoom:.8}
+  body.print-ana .ana .sheet:last-child{break-after:auto;page-break-after:auto}
+  body.print-ana *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}

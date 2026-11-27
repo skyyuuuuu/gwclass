@@ -61,6 +61,13 @@ service cloud.firestore {
       }
     }
 
+    // 段考分析彙總（五標、各題答對率、班平均等，不含個人作答）→ 參加這次段考的班級可讀
+    // 個人作答紀錄存在各學生自己的紀錄裡（students/{studentId}），只有本人可讀
+    match /analyses/{analysisId} {
+      allow get: if isAdmin() || (hasAccount() && myAccount().classId in resource.data.classIds);
+      allow list, write: if isAdmin();
+    }
+
     // 其他所有路徑一律拒絕
     match /{document=**} {
       allow read, write: if false;

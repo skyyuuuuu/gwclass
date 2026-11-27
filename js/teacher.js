@@ -3,6 +3,7 @@ import {
   doc, collection, getDoc, getDocs, setDoc, updateDoc, writeBatch, deleteField
 } from "./fb.js";
 import { SCHOOL_NAME, DEFAULT_CLASSES } from "./config.js";
+import { parseAnalysisFile, buildAgg, sheetHtml, overviewHtml } from "./analysis.js";
 
 const STATUS = [["", "未登記"], ["done", "已交"], ["late", "遲交"], ["makeup", "補交"], ["missing", "未交"], ["exempt", "免交"]];
 const STATUS_LABEL = Object.fromEntries(STATUS);
@@ -14,9 +15,11 @@ const app = document.getElementById("app");
 let classes = [];
 let ui = loadUI();
 let pending = 0, lastErr = "", openMenu = false;
+let analyses = {};            // 段考分析彙總：{ id: agg }
+let anaAll = false, anaSort = "q";
 
 /* ---------- helpers ---------- */
-function loadUI() { try { return Object.assign({ classId: null, tab: "lesson" }, JSON.parse(localStorage.getItem(UI_KEY) || "{}")); } catch (e) { return { classId: null, tab: "lesson" }; } }
+function loadUI() { const d = { classId: null, tab: "lesson", view: "class", anaId: null, anaSub: "ov", anaCls: null, anaStu: null }; try { return Object.assign(d, JSON.parse(localStorage.getItem(UI_KEY) || "{}")); } catch (e) { return d; } }
 function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch (e) {} }
 function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function today() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
@@ -32,7 +35,7 @@ const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 function cur() { return classes.find(c => c.id === ui.classId) || classes[0] || null; }
 function weekday(d) { if (!d) return ""; const w = new Date(d + "T00:00:00").getDay(); return isNaN(w) ? "" : "週" + "日一二三四五六"[w]; }
 function normClass(id, data) {
-  return Object.assign({ id, name: "", subject: "", teacher: "", order: 0, homeworks: [], exams: [], lessons: [], students: [] }, data, { id, students: [] });
+  return Object.assign({ id, name: "", subject: "", teacher: "", order: 0, homeworks: [], exams: [], lessons: [], analyses: [], students: [] }, data, { id, students: [] });
 }
 function genPw() {
   const cs = "abcdefghjkmnpqrstuvwxyz23456789", a = new Uint32Array(8);
@@ -50,7 +53,7 @@ function track(p, strict) {
 const classRef = c => doc(db, "classes", c.id);
 const stuRef = (c, s) => doc(db, "classes", c.id, "students", s.id);
 function classData(c) {
-  return { name: c.name, subject: c.subject, teacher: c.teacher, order: c.order || 0, homeworks: c.homeworks, exams: c.exams, lessons: c.lessons };
+  return { name: c.name, subject: c.subject, teacher: c.teacher, order: c.order || 0, homeworks: c.homeworks, exams: c.exams, lessons: c.lessons, analyses: c.analyses || [] };
 }
 function saveClass(c) { scheduleStats(c); return track(setDoc(classRef(c), classData(c), { merge: true })); }
 function stuData(s) { return { no: s.no, sid: s.sid || "", name: s.name, login: s.login || "", uid: s.uid || "", hw: s.hw || {}, ex: s.ex || {} }; }
@@ -121,6 +124,8 @@ async function loadAll() {
   const acc = await getDocs(collection(db, "accounts"));
   const must = {}; acc.docs.forEach(a => must[a.id] = !!a.data().mustChange);
   classes.forEach(c => c.students.forEach(s => { if (s.uid) s.mustChange = !!must[s.uid]; }));
+  const an = await getDocs(collection(db, "analyses"));
+  analyses = {}; an.docs.forEach(a => analyses[a.id] = Object.assign({ id: a.id }, a.data()));
   classes.sort((a, b) => (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name));
 }
 
@@ -130,8 +135,9 @@ function render() {
   let h = `<div class="top"><h1>${esc(SCHOOL_NAME)}｜老師後台</h1><span class="spacer"></span><span id="status" class="status"></span>
     <div class="menu"><button class="btn" data-act="menu">選單 ▾</button>${openMenu ? menuHtml() : ""}</div></div>`;
   h += `<div class="layout"><aside class="side">${sideHtml(c)}</aside><main class="main">`;
-  h += `<div class="mobile-cls"><select class="inp" data-act="pickcls">${classes.map(x => `<option value="${esc(x.id)}"${c && x.id === c.id ? " selected" : ""}>${esc(x.name)} 班</option>`).join("")}</select><button class="btn" data-act="addcls">＋ 班級</button></div>`;
-  h += c ? mainHtml(c) : `<div class="empty"><p>還沒有班級。</p><button class="btn primary" data-act="addcls">＋ 新增班級</button></div>`;
+  h += `<div class="mobile-cls"><select class="inp" data-act="pickcls">${classes.map(x => `<option value="${esc(x.id)}"${ui.view !== "ana" && c && x.id === c.id ? " selected" : ""}>${esc(x.name)} 班</option>`).join("")}<option value="__ana"${ui.view === "ana" ? " selected" : ""}>段考分析</option></select><button class="btn" data-act="addcls">＋ 班級</button></div>`;
+  if (ui.view === "ana") h += anaHtml();
+  else h += c ? mainHtml(c) : `<div class="empty"><p>還沒有班級。</p><button class="btn primary" data-act="addcls">＋ 新增班級</button></div>`;
   h += `</main></div>`;
   const keep = captureFocus();
   app.innerHTML = h;
@@ -156,9 +162,11 @@ function sideHtml(c) {
   let h = `<h3>班級</h3>`;
   classes.forEach(x => {
     const meta = [x.subject, x.teacher].filter(Boolean).join("・");
-    h += `<button class="cls${c && x.id === c.id ? " on" : ""}" data-act="cls" data-id="${esc(x.id)}">${esc(x.name)} 班<small>${esc(meta)}${meta ? "・" : ""}${x.students.length} 人</small></button>`;
+    h += `<button class="cls${ui.view !== "ana" && c && x.id === c.id ? " on" : ""}" data-act="cls" data-id="${esc(x.id)}">${esc(x.name)} 班<small>${esc(meta)}${meta ? "・" : ""}${x.students.length} 人</small></button>`;
   });
-  return h + `<button class="btn add" data-act="addcls">＋ 新增班級</button>`;
+  h += `<button class="btn add" data-act="addcls">＋ 新增班級</button>`;
+  const n = Object.keys(analyses).length;
+  return h + `<h3 style="margin-top:18px">成績分析</h3><button class="cls${ui.view === "ana" ? " on" : ""}" data-act="anaview">段考分析<small>${n ? n + " 份" : "尚未匯入"}</small></button>`;
 }
 function mainHtml(c) {
   const tabs = [["lesson", "上課進度"], ["hw", "作業"], ["exam", "考試"], ["sum", "學生總覽"], ["stu", "學生與帳號"], ["set", "班級設定"]];
@@ -229,7 +237,7 @@ function examHtml(c) {
   const exs = c.exams.slice().sort(byDate), stus = c.students.slice().sort(byNo);
   h += `<div class="tablewrap"><table class="grid"><thead><tr><th class="stick">學生</th>`;
   exs.forEach(e => {
-    h += `<th class="colhead${e.hidden ? " hidden" : ""}"><span class="t" title="${esc(e.title)}">${esc(e.title)}</span><span class="d">${esc(e.date || "")}・滿分 ${esc(e.full)}${hiddenNote(e)}</span><span class="acts"><button class="btn sm" data-act="editex" data-id="${esc(e.id)}">編輯</button></span></th>`;
+    h += `<th class="colhead${e.hidden ? " hidden" : ""}"><span class="t" title="${esc(e.title)}">${esc(e.title)}</span><span class="d">${esc(e.date || "")}・滿分 ${esc(e.full)}${e.aid ? "・段考分析" : ""}${hiddenNote(e)}</span><span class="acts"><button class="btn sm" data-act="editex" data-id="${esc(e.id)}">編輯</button></span></th>`;
   });
   h += `<th>平均（百分制）</th></tr></thead><tbody>`;
   stus.forEach(s => {
@@ -358,7 +366,7 @@ function showCredentials(list) {
 /* ---------- printing ---------- */
 // 列印時只顯示指定內容；等列印視窗關閉（afterprint）才還原，手機 Safari 也能正常列印
 function printWith(cls) {
-  document.body.classList.remove("printing", "printing-slips");
+  document.body.classList.remove("printing", "printing-slips", "print-ana");
   document.body.classList.add(cls);
   const done = () => document.body.classList.remove(cls);
   window.addEventListener("afterprint", done, { once: true });
@@ -437,6 +445,154 @@ async function createMany(c, list, pwFn) {
   if (fail) msgs.push(`有 ${list.length - done.length} 位沒建立成功：${fail}，可稍後再按一次`);
   if (msgs.length) toast(msgs.join("；"));
 }
+
+/* ---------- 段考分析 ---------- */
+function anaStudents(agg, aid) {
+  const out = [];
+  agg.classIds.forEach(cid => {
+    const c = classes.find(x => x.id === cid); if (!c) return;
+    c.students.slice().sort(byNo).forEach(s => { const rec = (s.exa || {})[aid]; if (rec) out.push({ clsId: cid, sid: s.id, seat: s.no, name: s.name, rec }); });
+  });
+  return out;
+}
+const anaHidden = agg => agg.classIds.every(cid => { const c = classes.find(x => x.id === cid); const e = c && (c.analyses || []).find(a => a.id === agg.id); return !e || e.hidden; });
+function anaHtml() {
+  const agg = analyses[ui.anaId];
+  if (!agg) {
+    const list = Object.values(analyses).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    let h = `<div class="head"><h2>段考分析</h2></div><div class="card" style="margin-top:14px"><h4>匯入段考分析</h4>
+      <p class="hint" style="margin-top:0">選擇段考分析的 HTML 檔（或同格式的 JSON）。系統會用「班級＋座號」對應學生，匯入前會先讓你確認。</p>
+      <div class="row" style="margin-top:8px"><button class="btn primary" data-act="anaimport">選擇檔案匯入</button></div></div>`;
+    if (!list.length) return h + `<div class="card empty">還沒有匯入任何段考分析。</div>`;
+    return h + `<div class="card ana-list">${list.map(a => `<div class="item"><div style="flex:1;min-width:200px"><div class="t">${esc(a.title)}</div><div class="m">${esc(a.date || "")}・${a.classIds.map(id => esc((a.cls[id] || {}).name) + " 班").join("、")}・${a.all.n} 人・${anaHidden(a) ? "<span class='lowtxt' style='font-weight:400'>家長看不到</span>" : "<span class='oktxt'>家長可查看</span>"}</div></div>
+      <button class="btn sm primary" data-act="anaopen" data-id="${esc(a.id)}">開啟</button><button class="btn sm" data-act="anavis" data-id="${esc(a.id)}">${anaHidden(a) ? "開放家長查看" : "關閉家長查看"}</button><button class="btn sm danger" data-act="anadel" data-id="${esc(a.id)}">刪除</button></div>`).join("")}</div>`;
+  }
+  const studs = anaStudents(agg, agg.id), hidden = anaHidden(agg);
+  let h = `<div class="ana-bar noprint"><button class="btn" data-act="anaback">← 所有段考</button><h2 style="margin:0;font-size:18px;flex:1;min-width:200px">${esc(agg.title)}</h2>
+    <span class="${hidden ? "lowtxt" : "oktxt"}" style="font-size:13px;font-weight:400">${hidden ? "家長看不到" : "家長可查看"}</span>
+    <button class="btn sm" data-act="anavis" data-id="${esc(agg.id)}">${hidden ? "開放家長查看" : "關閉家長查看"}</button></div>
+    <div class="tabs noprint"><button class="tab${ui.anaSub !== "sheet" ? " on" : ""}" data-act="anasub" data-id="ov">班級統計</button><button class="tab${ui.anaSub === "sheet" ? " on" : ""}" data-act="anasub" data-id="sheet">個人分析表</button></div>`;
+  if (!studs.length) return h + `<div class="card empty">目前名單裡找不到這份分析的學生資料（學生可能已被刪除）。</div>`;
+  if (ui.anaSub !== "sheet") return h + `<div class="ana">${overviewHtml(agg, studs, anaSort)}</div>`;
+  const cid = agg.classIds.includes(ui.anaCls) ? ui.anaCls : agg.classIds[0];
+  const inCls = studs.filter(x => x.clsId === cid);
+  const curS = inCls.find(x => x.sid === ui.anaStu) || inCls[0];
+  h += `<div class="ana-bar noprint"><select class="inp" data-act="anacls">${agg.classIds.map(id => `<option value="${esc(id)}"${id === cid ? " selected" : ""}>${esc(agg.cls[id].name)} 班</option>`).join("")}</select>
+    <select class="inp" data-act="anastusel"${anaAll ? " disabled" : ""}>${inCls.map(x => `<option value="${esc(x.sid)}"${curS && x.sid === curS.sid ? " selected" : ""}>${esc(x.seat)} 號 ${esc(x.name)}</option>`).join("")}</select>
+    <button class="btn" data-act="anastep" data-id="-1">上一位</button><button class="btn" data-act="anastep" data-id="1">下一位</button>
+    <label class="check"><input type="checkbox" data-act="anaall"${anaAll ? " checked" : ""}> 顯示全班</label>
+    <button class="btn primary" data-act="anaprint">列印${anaAll ? "全班" : "這一位"}</button></div>
+    <p class="hint noprint" style="margin-top:-6px">列印時每位學生印成一頁 A4；要印全班先勾「顯示全班」。</p>`;
+  const show = anaAll ? inCls : (curS ? [curS] : []);
+  return h + `<div class="ana">${show.map(x => sheetHtml(agg, cid, { seat: x.seat, name: x.name }, x.rec)).join("")}</div>`;
+}
+function matchAnalysis(raw) {
+  const classMap = {}, report = { classes: [], mismatch: [], unmatched: [], noData: [], unknownCls: [] }, pairs = [];
+  [...new Set(raw.students.map(s => s.clsName))].forEach(name => {
+    const c = classes.find(x => x.name === name);
+    if (!c) { report.unknownCls.push(name); return; }
+    classMap[name] = c.id;
+    const used = new Set(); let n = 0;
+    raw.students.filter(s => s.clsName === name).forEach(rs => {
+      let st = c.students.find(x => String(x.no) === rs.seat);
+      if (st && rs.name && st.name !== rs.name) {
+        const byName = c.students.find(x => x.name === rs.name);
+        report.mismatch.push(`${name} 班 ${rs.seat} 號：名單是「${st.name}」，分析檔是「${rs.name}」${byName ? `，改用姓名對應到 ${byName.no} 號` : "，略過"}`);
+        st = byName || null;
+      }
+      if (!st) { if (!c.students.find(x => String(x.no) === rs.seat)) report.unmatched.push(`${name} 班 ${rs.seat} 號 ${rs.name}`); return; }
+      if (used.has(st.id)) return; used.add(st.id); n++;
+      pairs.push({ c, s: st, rec: { ans: rs.ans, nc: rs.nc, choice: rs.choice, score: rs.score } });
+    });
+    c.students.filter(x => !used.has(x.id)).forEach(x => report.noData.push(`${name} 班 ${x.no} 號 ${x.name}`));
+    report.classes.push(`${name} 班：${n} 位`);
+  });
+  return { classMap, report, pairs };
+}
+function importAnalysis(raw) {
+  const { classMap, report, pairs } = matchAnalysis(raw);
+  if (!pairs.length) { toast("分析檔裡的班級或學生都對不上系統名單" + (report.unknownCls.length ? `（找不到班級：${report.unknownCls.join("、")}）` : "")); return; }
+  const warn = [...report.unknownCls.map(n => `系統裡沒有「${n}」班，這班會略過`), ...report.mismatch, ...report.unmatched.map(x => `名單裡沒有：${x}`), ...report.noData.map(x => `沒有成績資料：${x}`)];
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal"><h3>匯入段考分析</h3>
+    <div class="field"><label>標題（家長看到的個人分析表標題）</label><input class="inp" name="title" value="${esc(raw.title)}"></div>
+    <div class="field"><label>副標（學校、學期、範圍）</label><input class="inp" name="subtitle" value="${esc(raw.subtitle)}"></div>
+    <div class="field"><label>考試日期</label><input class="inp" type="date" name="date" value="${today()}"></div>
+    <p style="margin:6px 0">對應成功：${report.classes.map(esc).join("、")}（共 ${pairs.length} 位）</p>
+    ${warn.length ? `<div class="warnbox" style="max-height:140px;overflow:auto">${warn.map(esc).join("<br>")}</div>` : `<p class="hint" style="margin:0 0 8px">名單全部對上，沒有問題。</p>`}
+    <div class="field"><label class="check" style="font-size:14px;color:var(--ink)"><input type="checkbox" name="addExam" checked> 同時在「考試」新增這次段考的總分欄位</label></div>
+    <div class="field"><label class="check" style="font-size:14px;color:var(--ink)"><input type="checkbox" name="open"> 匯入後立即開放家長查看（不勾的話，可以先檢查再開放）</label></div>
+    <div class="acts"><button class="btn" data-m="cancel">取消</button><button class="btn primary" data-m="ok">匯入</button></div></div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", async e => {
+    const m = e.target.dataset && e.target.dataset.m;
+    if (e.target === bg || m === "cancel") { bg.remove(); return; }
+    if (m !== "ok") return;
+    const v = n => bg.querySelector(`[name=${n}]`), title = v("title").value.trim() || raw.title;
+    const date = v("date").value, addExam = v("addExam").checked, open = v("open").checked;
+    bg.remove();
+    const aid = uid("a_"), agg = buildAgg(Object.assign({}, raw, { title, subtitle: v("subtitle").value.trim() }), classMap);
+    agg.date = date; agg.createdAt = Date.now(); agg.examIds = {};
+    const full = agg.choiceMax + agg.ncMax, b = writeBatch(db), touched = new Set(pairs.map(p => p.c));
+    touched.forEach(c => {
+      if (addExam) { const eid = uid("e_"); agg.examIds[c.id] = eid; c.exams.push({ id: eid, title, date, full, aid, hidden: !open }); }
+      c.analyses = (c.analyses || []).concat({ id: aid, title, date, hidden: !open });
+    });
+    b.set(doc(db, "analyses", aid), agg);
+    touched.forEach(c => b.set(classRef(c), classData(c), { merge: true }));
+    pairs.forEach(({ c, s, rec }) => {
+      s.exa = s.exa || {}; s.exa[aid] = rec; const up = { ["exa." + aid]: rec };
+      if (addExam) { s.ex[agg.examIds[c.id]] = rec.score; up["ex." + agg.examIds[c.id]] = rec.score; }
+      b.update(stuRef(c, s), up);
+    });
+    const okk = await track(b.commit(), true).then(() => true, () => false);
+    if (!okk) { await reloadAll(); return; }
+    analyses[aid] = Object.assign({ id: aid }, agg);
+    touched.forEach(scheduleStats);
+    ui.anaId = aid; ui.anaSub = "ov"; saveUI(); render();
+    toast(`已匯入 ${pairs.length} 位學生的段考分析` + (open ? "，家長已可查看" : "，目前家長還看不到"));
+  });
+}
+function setAnaVisible(agg, visible) {
+  agg.classIds.forEach(cid => {
+    const c = classes.find(x => x.id === cid); if (!c) return;
+    (c.analyses || []).forEach(a => { if (a.id === agg.id) a.hidden = !visible; });
+    const e = c.exams.find(x => x.id === (agg.examIds || {})[cid]); if (e) { if (visible) delete e.hidden; else e.hidden = true; }
+    saveClass(c);
+  });
+  render(); toast(visible ? "家長現在可以看到這份段考分析" : "已關閉，家長看不到這份段考分析");
+}
+function deleteAnalysis(agg) {
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal"><h3>刪除段考分析</h3><p style="margin:0 0 10px">確定刪除「${esc(agg.title)}」？家長頁的個人分析表會一起消失，無法復原。</p>
+    <label class="check" style="font-size:14px"><input type="checkbox" name="delExam" checked> 一併刪除「考試」裡這次段考的總分欄位</label>
+    <div class="acts"><button class="btn" data-m="cancel">取消</button><button class="btn danger" data-m="ok">確定刪除</button></div></div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", e => {
+    const m = e.target.dataset && e.target.dataset.m;
+    if (e.target === bg || m === "cancel") { bg.remove(); return; }
+    if (m !== "ok") return;
+    const delExam = bg.querySelector("[name=delExam]").checked; bg.remove();
+    const b = writeBatch(db); b.delete(doc(db, "analyses", agg.id));
+    agg.classIds.forEach(cid => {
+      const c = classes.find(x => x.id === cid); if (!c) return;
+      const eid = (agg.examIds || {})[cid];
+      c.analyses = (c.analyses || []).filter(a => a.id !== agg.id);
+      if (delExam && eid) c.exams = c.exams.filter(x => x.id !== eid);
+      b.set(classRef(c), classData(c), { merge: true });
+      c.students.forEach(s => {
+        const up = {};
+        if (s.exa && s.exa[agg.id]) { delete s.exa[agg.id]; up["exa." + agg.id] = deleteField(); }
+        if (delExam && eid && s.ex && eid in s.ex) { delete s.ex[eid]; up["ex." + eid] = deleteField(); }
+        if (Object.keys(up).length) b.update(stuRef(c, s), up);
+      });
+      scheduleStats(c);
+    });
+    track(b.commit());
+    delete analyses[agg.id]; ui.anaId = null; saveUI(); render(); toast("已刪除");
+  });
+}
+async function reloadAll() { try { classes = []; await loadAll(); } catch (e) {} render(); }
 
 /* ---------- export / import ---------- */
 function csvCell(v) { v = v == null ? "" : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
@@ -527,8 +683,34 @@ app.addEventListener("click", async e => {
   const findS = () => c.students.find(x => x.id === t.dataset.s);
   switch (act) {
     case "menu": openMenu = !openMenu; render(); break;
-    case "cls": ui.classId = id; saveUI(); render(); break;
+    case "cls": ui.classId = id; ui.view = "class"; saveUI(); render(); break;
     case "tab": ui.tab = id; saveUI(); render(); break;
+    case "anaview": ui.view = "ana"; ui.anaId = null; saveUI(); render(); break;
+    case "anaopen": ui.anaId = id; ui.anaSub = "ov"; anaAll = false; saveUI(); render(); window.scrollTo(0, 0); break;
+    case "anaback": ui.anaId = null; saveUI(); render(); break;
+    case "anasub": ui.anaSub = id; saveUI(); render(); window.scrollTo(0, 0); break;
+    case "anasort": anaSort = id; render(); break;
+    case "anastu": ui.anaSub = "sheet"; ui.anaCls = t.dataset.c; ui.anaStu = t.dataset.s; anaAll = false; saveUI(); render(); window.scrollTo(0, 0); break;
+    case "anastep": {
+      const agg = analyses[ui.anaId]; if (!agg) break;
+      const cid = agg.classIds.includes(ui.anaCls) ? ui.anaCls : agg.classIds[0];
+      const list = anaStudents(agg, agg.id).filter(x => x.clsId === cid);
+      let i = list.findIndex(x => x.sid === ui.anaStu); if (i < 0) i = 0;
+      i += Number(id); if (i >= 0 && i < list.length) { ui.anaStu = list[i].sid; ui.anaCls = cid; anaAll = false; saveUI(); render(); }
+      break;
+    }
+    case "anaprint": printWith("print-ana"); break;
+    case "anavis": { const agg = analyses[id]; if (agg) setAnaVisible(agg, anaHidden(agg)); break; }
+    case "anadel": { const agg = analyses[id]; if (agg) deleteAnalysis(agg); break; }
+    case "anaimport": {
+      const fi = document.createElement("input"); fi.type = "file"; fi.accept = ".html,.htm,.json,text/html,application/json";
+      fi.onchange = () => {
+        const f = fi.files[0]; if (!f) return; const rd = new FileReader();
+        rd.onload = () => { let raw; try { raw = parseAnalysisFile(String(rd.result)); } catch (err) { toast("無法讀取這個檔案：" + (err.message || err)); return; } importAnalysis(raw); };
+        rd.readAsText(f);
+      };
+      fi.click(); break;
+    }
     case "logout": await logout(); location.replace("index.html"); break;
     case "chpw":
       modal("修改我的密碼", [{ name: "old", label: "目前密碼", type: "password" }, { name: "pw", label: "新密碼（至少 6 個字元）", type: "password" }, { name: "pw2", label: "再輸入一次新密碼", type: "password" }], async v => {
@@ -654,7 +836,10 @@ app.addEventListener("click", async e => {
 
 app.addEventListener("change", e => {
   const t = e.target, act = t.dataset.act, c = cur(); if (!act || !c) return;
-  if (act === "pickcls") { ui.classId = t.value; saveUI(); render(); return; }
+  if (act === "pickcls") { if (t.value === "__ana") ui.view = "ana"; else { ui.classId = t.value; ui.view = "class"; } saveUI(); render(); return; }
+  if (act === "anacls") { ui.anaCls = t.value; ui.anaStu = null; anaAll = false; saveUI(); render(); return; }
+  if (act === "anastusel") { ui.anaStu = t.value; saveUI(); render(); return; }
+  if (act === "anaall") { anaAll = t.checked; render(); return; }
   const s = t.dataset.s ? c.students.find(x => x.id === t.dataset.s) : null;
   if (act === "hwst" && s) {
     const r = s.hw[t.dataset.h] || { s: "", score: null }; r.s = t.value;

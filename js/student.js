@@ -1,11 +1,12 @@
 // 家長／學生頁：只讀取自己的資料（accounts/自己、班級資料、自己的學生紀錄、全班統計）
 import { configured, db, waitUser, isAdmin, changeOwnPassword, logout, errText, esc, toast, setupNotice, doc, getDoc, updateDoc } from "./fb.js";
 import { SCHOOL_NAME } from "./config.js";
+import { sheetHtml } from "./analysis.js";
 
 const STATUS_LABEL = { "": "未登記", done: "已交", late: "遲交", makeup: "補交", missing: "未交", exempt: "免交" };
 const SUBMITTED = { done: 1, late: 1, makeup: 1 };
 const app = document.getElementById("app");
-let cls, stu, stats, tab = "lesson";
+let cls, stu, stats, tab = "lesson", anas = [], anaIdx = 0;
 
 const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 function fmt(n, d = 1) { if (n == null || isNaN(n)) return "—"; const p = 10 ** d; return String(Math.round(n * p) / p); }
@@ -33,9 +34,9 @@ function render() {
     <div class="stat"><div class="k">作業繳交率</div><div class="v${st.rate != null && st.rate < 80 ? " bad" : ""}">${st.rate == null ? "—" : fmt(st.rate, 0) + "%"}</div><div class="c">${st.counted ? `交了 ${st.sub}/${st.counted} 份` : "尚無紀錄"}${ov.hwRate != null ? `・全班 ${fmt(ov.hwRate, 0)}%` : ""}</div></div>
     <div class="stat"><div class="k">未交作業</div><div class="v${st.missing.length ? " bad" : ""}">${st.missing.length}</div><div class="c">${st.missing.length ? esc(st.missing.map(x => x.title).join("、")) : "目前沒有未交"}</div></div>
     <div class="stat"><div class="k">考試平均（百分制）</div><div class="v">${fmt(st.exAvg)}</div><div class="c">${ov.exAvg != null ? `全班平均 ${fmt(ov.exAvg)}` : "　"}</div></div></div>`;
-  const tabs = [["lesson", "上課進度"], ["hw", "作業"], ["exam", "考試"]];
+  const tabs = [["lesson", "上課進度"], ["hw", "作業"], ["exam", "考試"]].concat(anas.length ? [["ana", "段考分析"]] : []);
   h += `<div class="tabs">${tabs.map(t => `<button class="tab${tab === t[0] ? " on" : ""}" data-act="tab" data-id="${t[0]}">${t[1]}</button>`).join("")}</div>`;
-  h += tab === "hw" ? hwHtml() : tab === "exam" ? examHtml() : lessonHtml();
+  h += tab === "hw" ? hwHtml() : tab === "exam" ? examHtml() : tab === "ana" && anas.length ? anaHtml() : lessonHtml();
   h += `<p class="hint" style="margin-top:16px">全班平均只包含平均數字，不會顯示其他同學的成績。</p></div>`;
   app.innerHTML = h;
 }
@@ -66,6 +67,12 @@ function examHtml() {
       <td class="num">${s.avg != null ? fmt(s.avg) : "—"}</td></tr>`;
   }).join("")}</tbody></table></div>`;
 }
+function anaHtml() {
+  const a = anas[Math.min(anaIdx, anas.length - 1)];
+  return `<div class="ana-bar noprint">${anas.length > 1 ? `<select class="inp" data-act="anapick">${anas.map((x, i) => `<option value="${i}"${x === a ? " selected" : ""}>${esc(x.agg.title)}</option>`).join("")}</select>` : `<b>${esc(a.agg.title)}</b>`}
+    <span style="flex:1"></span><button class="btn" data-act="anaprint">列印</button></div>
+    <div class="ana">${sheetHtml(a.agg, a.clsId, { seat: stu.no, name: stu.name }, a.rec)}</div>`;
+}
 function errorCard(title, msg) {
   app.innerHTML = `<div class="login-wrap"><div class="login-card"><h1>${esc(title)}</h1><p>${esc(msg)}</p><button class="btn primary" data-act="logout">回到登入頁</button></div></div>`;
 }
@@ -76,7 +83,13 @@ app.addEventListener("click", async e => {
   if (t.dataset.act === "tab") { tab = t.dataset.id; render(); }
   else if (t.dataset.act === "logout") { await logout(); location.replace("index.html"); }
   else if (t.dataset.act === "chpw") chpwDialog();
+  else if (t.dataset.act === "anaprint") {
+    document.body.classList.add("print-ana");
+    window.addEventListener("afterprint", () => document.body.classList.remove("print-ana"), { once: true });
+    window.print();
+  }
 });
+app.addEventListener("change", e => { if (e.target.dataset.act === "anapick") { anaIdx = Number(e.target.value); render(); } });
 function chpwDialog() {
   const bg = document.createElement("div"); bg.className = "modal-bg";
   bg.innerHTML = `<div class="modal"><h3>修改密碼</h3>
@@ -140,6 +153,10 @@ async function loadAndRender(classId, studentId) {
   cls = { name: cd.name || "", subject: cd.subject || "", teacher: cd.teacher || "", lessons: cd.lessons || [],
     homeworks: (cd.homeworks || []).filter(x => !x.hidden), exams: (cd.exams || []).filter(x => !x.hidden) };
   stu = s.data(); stats = st.exists() ? st.data() : null;
+  // 段考分析：老師開放的才讀；彙總來自 analyses，個人作答來自本人紀錄
+  const list = (cd.analyses || []).filter(a => !a.hidden && stu.exa && stu.exa[a.id]).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  anas = (await Promise.all(list.map(a => getDoc(doc(db, "analyses", a.id)).then(d => d.exists() ? { agg: d.data(), rec: stu.exa[a.id], clsId: classId } : null, () => null))))
+    .filter(x => x && x.agg.cls && x.agg.cls[classId]);
   render();
 }
 

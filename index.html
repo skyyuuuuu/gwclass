@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>光武國中 701・711｜登入</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="login-wrap" id="app">
+  <form class="login-card" id="form" autocomplete="on">
+    <h1>光武國中 701・711</h1>
+    <p class="sub">作業、成績與上課進度查詢</p>
+    <div class="field">
+      <label for="id">學號</label>
+      <input class="inp" id="id" name="username" autocomplete="username" placeholder="請輸入學號" inputmode="text" required>
+    </div>
+    <div class="field">
+      <label for="pw">密碼</label>
+      <input class="inp" id="pw" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="err" id="err"></div>
+    <button class="btn primary" id="go" type="submit">登入</button>
+    <p class="hint">家長與學生請用學號和老師給的初始密碼登入，第一次登入需要改密碼。忘記密碼請聯絡老師重設。（老師請用 Email 登入）</p>
+  </form>
+</div>
+<script type="module" src="js/login.js"></script>
+</body>
+</html>

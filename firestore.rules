@@ -1,0 +1,69 @@
+rules_version = '2';
+
+// 光武國中 701・711 作業成績系統的權限規則
+// ⚠️ 把下面的「填入老師帳號的 UID」換成你老師帳號的 UID（和 js/config.js 的 ADMIN_UID 相同）
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == '填入老師帳號的 UID';
+    }
+    // 學生帳號對應到哪一班、哪一位學生（由老師建立帳號時寫入）
+    function myAccount() {
+      return get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data;
+    }
+    function hasAccount() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/accounts/$(request.auth.uid));
+    }
+    function inClass(classId) {
+      return hasAccount() && myAccount().classId == classId;
+    }
+    function isStudent(classId, studentId) {
+      return inClass(classId) && myAccount().studentId == studentId;
+    }
+
+    // 登入用：學號 → 系統內部 Email。只能用完整帳號查單筆，不能列出全部
+    match /logins/{loginId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if isAdmin();
+    }
+
+    // 學生帳號 → 班級、學生、是否需要首次改密碼
+    match /accounts/{uid} {
+      allow get: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow list, write: if isAdmin();
+      // 本人改完密碼後，只能把 mustChange 改成 false，其他欄位一律不能動
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange'])
+        && request.resource.data.mustChange == false;
+    }
+
+    // 班級：名稱、作業清單、考試清單、上課進度 → 同班的學生帳號可讀
+    match /classes/{classId} {
+      allow get: if isAdmin() || inClass(classId);
+      allow list, write: if isAdmin();
+
+      // 每位學生的繳交狀況與成績 → 只有本人可讀
+      match /students/{studentId} {
+        allow get: if isAdmin() || isStudent(classId, studentId);
+        allow list, write: if isAdmin();
+      }
+      // 全班平均等統計（不含任何個人分數）→ 同班可讀
+      match /stats/{docId} {
+        allow get: if isAdmin() || inClass(classId);
+        allow list, write: if isAdmin();
+      }
+      // 老師的私人備註 → 只有老師
+      match /private/{studentId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
+    // 其他所有路徑一律拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
